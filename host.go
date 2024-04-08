@@ -1,10 +1,11 @@
 package main
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	_ "embed"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/tetratelabs/wazero"
@@ -31,19 +32,31 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	stdin := bytes.NewBuffer([]byte{})
-	stdout := bytes.NewBuffer([]byte{})
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
 	modCfg := wazero.NewModuleConfig().
-		WithStdin(stdin).
-		WithStdout(stdout).
+		WithStdin(stdinR).
+		WithStdout(stdoutW).
 		WithStderr(os.Stderr)
 
-	if _, err := r.InstantiateModule(ctx, mod, modCfg); err != nil {
-		panic(err)
-	}
+	go func() {
+		if _, err := r.InstantiateModule(ctx, mod, modCfg); err != nil {
+			panic(err)
+		}
+	}()
 
 	fmt.Fprintf(os.Stderr, "write buffer\n")
-	if _, err := stdin.Write([]byte("hello world\n")); err != nil {
+	if _, err := stdinW.Write([]byte("hello world\n")); err != nil {
 		panic(err)
+	}
+	stdinW.Close()
+	reader := bufio.NewReader(stdoutR)
+	for {
+		content, err := reader.ReadString('\n')
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "content = %s. err = %v\n", content, err)
+		break
 	}
 }
